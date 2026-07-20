@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#11111b">
+  <title>{{ title or 'Movie Ticket Watcher' }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/diagnostics.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="Movie Ticket Watcher dashboard">
+        <span class="brand-icon" aria-hidden="true">◆</span>
+        <span class="brand-copy"><span class="brand-title">Movie Ticket Watcher</span><span class="brand-subtitle">Availability monitor</span></span>
+      </a>
+      <nav aria-label="Primary navigation"><a class="nav-link" href="/watches/new"><span aria-hidden="true">＋</span><span class="nav-label">New watch</span></a></nav>
+    </div>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

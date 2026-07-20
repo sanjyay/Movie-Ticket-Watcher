@@ -1,0 +1,24 @@
+[Unit]
+Description=Movie Ticket Watcher monitoring worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ticketwatcher
+Group=ticketwatcher
+WorkingDirectory=/opt/movie-ticket-watcher
+EnvironmentFile=/etc/movie-ticket-watcher/app.env
+ExecStart=/opt/movie-ticket-watcher/.venv/bin/python /opt/movie-ticket-watcher/worker.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/movie-ticket-watcher /var/log/movie-ticket-watcher
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

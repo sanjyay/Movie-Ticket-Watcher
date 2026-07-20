@@ -1,0 +1,8 @@
+{
+  "result": "success",
+  "msg": "Record found",
+  "output": {
+    "movie": {"id": "12345", "n": "SPIDER-MAN: BRAND NEW DAY"},
+    "movieCinemaSessions": []
+  }
+}

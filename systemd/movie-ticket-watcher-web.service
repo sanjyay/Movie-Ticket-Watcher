@@ -1,0 +1,24 @@
+[Unit]
+Description=Movie Ticket Watcher web interface
+After=network.target
+
+[Service]
+Type=simple
+User=ticketwatcher
+Group=ticketwatcher
+WorkingDirectory=/opt/movie-ticket-watcher
+EnvironmentFile=/etc/movie-ticket-watcher/app.env
+ExecStart=/opt/movie-ticket-watcher/.venv/bin/uvicorn app.main:app --host ${APP_BIND} --port ${APP_PORT} --proxy-headers
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/movie-ticket-watcher /var/log/movie-ticket-watcher
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

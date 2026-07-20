@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+Jinja2==3.1.5
+python-multipart==0.0.20
+SQLAlchemy==2.0.41
+greenlet==3.3.0
+pydantic-settings==2.7.1
+playwright==1.61.0
+httpx==0.28.1
+beautifulsoup4==4.12.3
+itsdangerous==2.2.0
+pytest==8.3.4
+pytest-asyncio==0.25.2
+ruff==0.9.2

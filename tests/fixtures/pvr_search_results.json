@@ -1,0 +1,19 @@
+{
+  "result": "success",
+  "msg": "Record found",
+  "output": {
+    "ns": [
+      {
+        "id": "12345",
+        "n": "SPIDER-MAN: BRAND NEW DAY",
+        "movieType": "NOWSHOWING",
+        "showCount": 4,
+        "otherlanguages": "English",
+        "films": [
+          {"language": "English", "format": "", "filmCommonName": "SPIDER-MAN: BRAND NEW DAY"}
+        ]
+      }
+    ],
+    "cs": []
+  }
+}

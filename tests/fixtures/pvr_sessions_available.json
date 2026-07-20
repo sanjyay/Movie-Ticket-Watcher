@@ -1,0 +1,26 @@
+{
+  "result": "success",
+  "msg": "Record found",
+  "output": {
+    "movie": {"id": "12345", "n": "SPIDER-MAN: BRAND NEW DAY"},
+    "movieCinemaSessions": [
+      {
+        "cinema": {"name": "PVR Forum", "cityName": "Bengaluru"},
+        "experienceSessions": [
+          {
+            "shows": [
+              {
+                "status": 1,
+                "showDate": "2030-05-31",
+                "showTime": "07:30 PM",
+                "language": "English",
+                "filmFormat": "",
+                "movieFormat": ""
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

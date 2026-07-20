@@ -1,0 +1,9 @@
+{
+  "name": "Movie Ticket Watcher",
+  "id": "movie-ticket-watcher",
+  "version": "0.2.0",
+  "description": "Watch BookMyShow and PVR INOX availability and notify through ntfy.",
+  "port_map": "8787",
+  "scheme": "http",
+  "web_ui": "http://[HOST]:[PORT:8787]/"
+}

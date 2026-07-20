@@ -1,0 +1,18 @@
+services:
+  web:
+    volumes:
+      - .:/app
+      - ./data:/data
+      - ./config:/config
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8787", --reload]
+    environment:
+      LOG_LEVEL: DEBUG
+      SIMULATION_ENABLED: "true"
+  worker:
+    volumes:
+      - .:/app
+      - ./data:/data
+      - ./config:/config
+    environment:
+      LOG_LEVEL: DEBUG
+      SIMULATION_ENABLED: "true"

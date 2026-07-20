@@ -1,0 +1,59 @@
+name: movie-ticket-watcher
+x-common: &common
+  image: ghcr.io/REPOSITORY_OWNER/movie-ticket-watcher:latest
+  environment: &environment
+    APP_BIND: 0.0.0.0
+    APP_PORT: "8787"
+    APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+    TZ: ${APP_TIMEZONE:-Asia/Kolkata}
+    DATABASE_URL: sqlite:////data/tickets.db
+    DATA_DIR: /data
+    SCREENSHOT_DIR: /data/screenshots
+    LOG_DIR: /data/logs
+    BACKUP_DIR: /data/backups
+    CONFIG_DIR: /config
+    NTFY_SERVER: ${NTFY_SERVER:-https://ntfy.sh}
+    NTFY_TOKEN: ${NTFY_TOKEN:-}
+    BLOCKED_RETRY_FIRST_SECONDS: ${BLOCKED_RETRY_FIRST_SECONDS:-1800}
+    BLOCKED_RETRY_SECOND_SECONDS: ${BLOCKED_RETRY_SECOND_SECONDS:-3600}
+    BLOCKED_RETRY_SUBSEQUENT_SECONDS: ${BLOCKED_RETRY_SUBSEQUENT_SECONDS:-10800}
+    BLOCKED_RETRY_MAX_SECONDS: ${BLOCKED_RETRY_MAX_SECONDS:-21600}
+    SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+    PUID: ${PUID:-1000}
+    PGID: ${PGID:-1000}
+    CONTAINER_DEPLOYMENT: "true"
+  volumes:
+    - /DATA/AppData/movie-ticket-watcher/data:/data
+    - /DATA/AppData/movie-ticket-watcher/config:/config
+  restart: unless-stopped
+  user: "${PUID:-1000}:${PGID:-1000}"
+  init: true
+  shm_size: 1gb
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+
+services:
+  web:
+    <<: *common
+    container_name: movie-ticket-watcher-web
+    command: web
+    ports: ["8787:8787"]
+    healthcheck:
+      test: [CMD, python, /app/scripts/healthcheck.py, --web]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  worker:
+    <<: *common
+    container_name: movie-ticket-watcher-worker
+    command: worker
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, /app/scripts/healthcheck.py, --worker]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s

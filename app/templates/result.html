@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">
+  <div><h1>{{ watch.movie_name }}</h1><p>Platform-specific results and sanitized adapter diagnostics</p></div>
+  <a class="button secondary" href="/">Back</a>
+</div>
+<section>
+  <h2>Platform status</h2>
+  <div class="diagnostic-grid">
+    {% for platform,check in latest_checks.items() %}
+    {% set slug = 'bookmyshow' if platform == 'BookMyShow' else 'pvrinox' %}
+    {% set retry = retry_states[platform] %}
+    {% set direct_url = watch.bookmyshow_direct_url if platform == 'BookMyShow' else watch.pvrinox_direct_url %}
+    {% set discovered_url = watch.bookmyshow_discovered_url if platform == 'BookMyShow' else watch.pvrinox_discovered_url %}
+    <article class="platform-diagnostic">
+      <div class="watch-head">
+        <h3>{{ platform }}</h3>
+        <span class="status {{ (check.status if check else 'waiting')|lower }}">{{ (check.status if check else 'WAITING')|status_label }}</span>
+      </div>
+      <dl>
+        <dt>Mode</dt><dd>{{ watch.bookmyshow_mode if platform == 'BookMyShow' else watch.pvrinox_mode }}</dd>
+        <dt>Direct URL</dt><dd><code>{{ (direct_url|safeurl) or 'Not supplied' }}</code></dd>
+        <dt>Canonical URL</dt><dd><code>{{ (discovered_url|safeurl) or 'Not discovered' }}</code></dd>
+        {% if check %}
+        <dt>Final URL</dt><dd><code>{{ ((check.final_url or check.checked_url)|safeurl) or 'Not recorded' }}</code></dd>
+        <dt>Page outcome</dt><dd>{{ check.page_outcome or 'Not recorded' }}</dd>
+        <dt>Page title</dt><dd>{{ check.page_title or 'Not recorded' }}</dd>
+        <dt>Phase</dt><dd>{{ check.phase or 'Not recorded' }}</dd>
+        <dt>Structured data</dt><dd>{{ check.structured_sources or 'None' }}</dd>
+        <dt>Candidates</dt><dd>{{ check.raw_candidate_count }} raw · {{ check.matching_count }} matching</dd>
+        <dt>Block</dt><dd>{{ check.block_classification or 'None' }}{% if check.ray_id %} · Ray ID {{ check.ray_id }}{% endif %}</dd>
+        <dt>Parser</dt><dd>{{ check.parser_version or 'Not recorded' }}</dd>
+        {% endif %}
+        <dt>Next retry</dt><dd>{{ retry.blocked_until|localdt if retry.blocked_until else 'Normal schedule' }}</dd>
+      </dl>
+      {% if retry.blocked_until %}<p class="warning">This platform is cooling down. Repeated manual retries may prolong the block.</p>{% endif %}
+      {% if check and check.error %}<p class="error">{{ check.error }}</p>{% endif %}
+      {% if check and check.reason %}<p>{{ check.reason }}</p>{% endif %}
+      <div class="actions">
+        <form method="post" action="/watches/{{ watch.id }}/platform/{{ slug }}/retry" onsubmit="return confirm('Retry this platform now? Repeated attempts may prolong a block.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Retry {{ platform }} now</button>
+        </form>
+        <form method="post" action="/watches/{{ watch.id }}/platform/{{ slug }}/disable">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Disable {{ platform }}</button>
+        </form>
+        <form method="post" action="/watches/{{ watch.id }}/platform/{{ slug }}/test-direct">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Test direct URL</button>
+        </form>
+        <form method="post" action="/watches/{{ watch.id }}/platform/{{ slug }}/clear-cache">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Clear discovered URL cache</button>
+        </form>
+        <a class="button secondary" href="/watches/{{ watch.id }}/platform/{{ slug }}/diagnostic.json">Download sanitized report</a>
+        {% if check and check.screenshot_path %}<a class="button secondary" href="/diagnostics/{{ check.screenshot_path|basename }}">View platform screenshot</a>{% endif %}
+      </div>
+    </article>
+    {% else %}
+    <p>All platforms are disabled.</p>
+    {% endfor %}
+  </div>
+</section>
+<section>
+  <h2>Detected matching shows</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Platform</th><th>Theatre</th><th>Date</th><th>Time</th><th>Language / format</th><th>Booking</th></tr></thead>
+    <tbody>
+      {% for s in shows %}<tr><td>{{ s.platform }}</td><td>{{ s.theatre }}</td><td>{{ s.show_date }}</td><td>{{ s.showtime.strftime('%H:%M') }}</td><td>{{ s.language }} / {{ s.format }}</td><td><a href="{{ s.booking_url }}" rel="noopener">Open</a></td></tr>
+      {% else %}<tr><td colspan="6">No qualifying show has been detected.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+<section>
+  <h2>Recent checks</h2>
+  {% for c in checks %}
+  <article class="check-result">
+    <strong>{{ c.platform }} · {{ c.status|status_label }}</strong><span>{{ c.checked_at|localdt }}</span>
+    {% if c.phase %}<p>Phase: {{ c.phase }}</p>{% endif %}
+    {% if c.checked_url %}<p>Checked URL: <code>{{ c.checked_url|safeurl }}</code></p>{% endif %}
+    {% if c.final_url and c.final_url != c.checked_url %}<p>Final URL: <code>{{ c.final_url|safeurl }}</code></p>{% endif %}
+    {% if c.reason %}<p>{{ c.reason }}</p>{% endif %}
+    {% if c.error %}<p class="error">{{ c.error }}</p>{% endif %}
+    {% if c.screenshot_path %}
+    <p>Screenshot: <code>{{ c.screenshot_path }}</code></p>
+    <img class="diagnostic" src="/diagnostics/{{ c.screenshot_path|basename }}" alt="Diagnostic screenshot for {{ c.platform }}">
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

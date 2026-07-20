@@ -1,0 +1,8 @@
+{
+  "result": "success",
+  "msg": "Record found",
+  "output": {
+    "ns": [{"id": "999", "n": "ANOTHER MOVIE", "movieType": "NOWSHOWING", "showCount": 2}],
+    "cs": []
+  }
+}

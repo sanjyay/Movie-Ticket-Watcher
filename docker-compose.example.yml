@@ -1,0 +1,4 @@
+# Copy to docker-compose.yml only when you need to customize the production stack.
+# The checked-in docker-compose.yml is directly usable and builds the local image.
+include:
+  - docker-compose.yml
