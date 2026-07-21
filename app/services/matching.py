@@ -40,7 +40,14 @@ def match_reason(watch: Watch, show: ShowResult) -> tuple[bool, str]:
         ),
         (normalized_words(watch.language) == normalized_words(show.language), "language differs"),
         (normalized_words(watch.format) == normalized_words(show.format), "format differs"),
-        (time_in_window(show.showtime, watch.start_time, watch.end_time), "outside time window"),
+        (
+            show.time_verified
+            and time_in_window(show.showtime, watch.start_time, watch.end_time)
+            or (not show.time_verified and str(watch.time_preset).upper() == "ANY" and show.bookable),
+            "SHOWTIME_UNVERIFIED"
+            if not show.time_verified
+            else "outside time window",
+        ),
     ]
     wanted = [
         normalized_words(x.strip())
@@ -63,7 +70,8 @@ def filter_shows(watch: Watch, shows: list[ShowResult]) -> tuple[list[ShowResult
     reasons: list[str] = []
     for show in shows:
         matched, reason = match_reason(watch, show)
-        reasons.append(f"{show.movie_title} at {show.showtime}: {reason}")
+        shown_time = show.display_time if show.time_verified else "SHOWTIME_UNVERIFIED"
+        reasons.append(f"{show.movie_title} at {shown_time}: {reason}")
         if matched:
             matches.append(show)
     return matches, reasons

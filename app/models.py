@@ -116,6 +116,7 @@ class PlatformCheck(Base):
     block_classification: Mapped[str] = mapped_column(String(80), default="")
     ray_id: Mapped[str] = mapped_column(String(120), default="")
     parser_version: Mapped[str] = mapped_column(String(40), default="")
+    session_diagnostics: Mapped[str] = mapped_column(Text, default="")
 
 
 class PlatformRetryState(Base):
@@ -154,6 +155,14 @@ class DetectedShow(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    raw_time: Mapped[str] = mapped_column(Text, default="")
+    normalized_time: Mapped[str] = mapped_column(String(5), default="")
+    display_time: Mapped[str] = mapped_column(String(20), default="")
+    time_source: Mapped[str] = mapped_column(String(80), default="")
+    time_verified: Mapped[bool] = mapped_column(Boolean, default=True)
+    timezone_treatment: Mapped[str] = mapped_column(String(120), default="")
+    session_id: Mapped[str] = mapped_column(String(120), default="")
+    legacy_time_invalidated: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class StateTransition(Base):

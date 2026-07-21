@@ -9,7 +9,10 @@ silently converting a changed shape into a false "unavailable" result.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from datetime import datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -24,10 +27,64 @@ from app.platforms.parsing import (
 )
 from app.platforms.urls import PVRINOX_URLS, sanitize_url
 from app.schemas import RawAdapterData, ShowResult
-from app.services.matching import normalized_words, parse_time, titles_match
+from app.services.matching import normalized_words, titles_match
 
 PVR_API_BASE = "https://api3.pvrcinemas.com/api/v1/booking/content"
-PVR_PARSER_VERSION = "pvr-public-json-v1"
+PVR_PARSER_VERSION = "pvr-public-json-v2-verified-showtime"
+SHOWTIME_UNVERIFIED = "SHOWTIME_UNVERIFIED"
+PVR_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedPvrTime:
+    raw: str
+    value: time
+    normalized: str
+    display: str
+    source: str
+    verified: bool
+    timezone_treatment: str
+
+
+def parse_pvr_showtime(raw: object, source: str = "showTime") -> ParsedPvrTime:
+    """Parse only PVR's page-visible showTime field; never infer from adjacent fields."""
+    value = str(raw or "").strip()
+    parsed: time | None = None
+    treatment = "Asia/Kolkata local wall-clock; no timezone conversion"
+    if re.fullmatch(r"[0-2]?\d:[0-5]\d", value):
+        parsed = datetime.strptime(value, "%H:%M").time()
+    elif re.fullmatch(r"\d{3,4}", value):
+        compact = value.zfill(4)
+        try:
+            parsed = time(int(compact[:2]), int(compact[2:]))
+        except ValueError:
+            parsed = None
+    else:
+        for fmt in ("%I:%M %p", "%I:%M%p"):
+            try:
+                parsed = datetime.strptime(value.upper().replace(".", ""), fmt).time()
+                break
+            except ValueError:
+                pass
+    if parsed is None and re.search(r"(?:Z|[+-]\d\d:\d\d)$", value):
+        try:
+            instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if instant.tzinfo is not None:
+                parsed = instant.astimezone(PVR_TIMEZONE).time().replace(tzinfo=None)
+                treatment = "explicit offset converted exactly once to Asia/Kolkata"
+        except ValueError:
+            pass
+    if parsed is None:
+        return ParsedPvrTime(value, time(0), "", "", source, False, "not converted")
+    return ParsedPvrTime(
+        value,
+        parsed,
+        parsed.strftime("%H:%M"),
+        parsed.strftime("%I:%M %p").lstrip("0"),
+        source,
+        True,
+        treatment,
+    )
 
 
 class PvrInoxAdapter(TicketPlatformAdapter):
@@ -420,6 +477,7 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             )
 
         shows: list[ShowResult] = []
+        session_diagnostics: list[dict[str, object]] = []
         session_nodes = 0
         cinemas = output.get("movieCinemaSessions")
         if not isinstance(cinemas, list):
@@ -445,32 +503,78 @@ class PvrInoxAdapter(TicketPlatformAdapter):
                     if not isinstance(item, dict):
                         continue
                     session_nodes += 1
-                    if int(item.get("status") or 0) not in {1, 2}:
-                        continue
-                    raw_format = str(
-                        item.get("filmFormat")
-                        or item.get("movieFormat")
-                        or item.get("screenType")
-                        or "2D"
+                    # Captured 2026-07-23 msessions data proves status=0 is the set rendered
+                    # by the public PVR page. status=1 records included the non-rendered
+                    # 07:55 PM and 11:35 PM sessions, so accepting 1/2 is unsafe.
+                    bookable = item.get("status") == 0
+                    time_fields = {
+                        str(key): value
+                        for key, value in item.items()
+                        if "time" in str(key).casefold()
+                    }
+                    parsed_time = parse_pvr_showtime(item.get("showTime"), "showTime")
+                    explicit_format = str(item.get("filmFormat") or "").strip()
+                    # movieFormat/screenType carry experiences such as ATMOS/Premium in
+                    # this schema. The request itself was constrained by `format`.
+                    raw_format = (
+                        explicit_format
+                        if " ".join(normalized_words(explicit_format)) in {"2d", "3d", "4dx"}
+                        else watch.format
                     )
+                    session_id = str(item.get("sessionId") or item.get("id") or "")
+                    diagnostic = {
+                        "time_fields": time_fields,
+                        "selected_field": "showTime",
+                        "raw_time": parsed_time.raw,
+                        "normalized_time": parsed_time.normalized or SHOWTIME_UNVERIFIED,
+                        "display_time": parsed_time.display or SHOWTIME_UNVERIFIED,
+                        "timezone_treatment": parsed_time.timezone_treatment,
+                        "verification_status": (
+                            "VERIFIED_PAGE_VISIBLE_FIELD"
+                            if parsed_time.verified
+                            else SHOWTIME_UNVERIFIED
+                        ),
+                        "session_id": session_id,
+                        "theatre": theatre,
+                        "date": str(item.get("showDate") or item.get("showDateStr") or ""),
+                        "language": str(item.get("language") or ""),
+                        "format": raw_format,
+                        "raw_status": item.get("status"),
+                        "bookable": bookable,
+                        "matched_time_preset": False,
+                    }
+                    session_diagnostics.append(diagnostic)
+                    if not bookable:
+                        continue
                     try:
-                        shows.append(
-                            ShowResult(
-                                platform=self.name,
-                                movie_title=str(movie.get("n") or watch.movie_name),
-                                theatre=theatre,
-                                date=watch.show_date.fromisoformat(
-                                    str(item.get("showDate") or item.get("showDateStr"))
-                                ),
-                                showtime=parse_time(str(item.get("showTime") or "")),
-                                language=str(item.get("language") or ""),
-                                format=raw_format,
-                                booking_url=sanitize_url(url),
-                                city=city,
-                            )
+                        show_date = watch.show_date.fromisoformat(
+                            str(item.get("showDate") or item.get("showDateStr"))
                         )
                     except (TypeError, ValueError):
                         continue
+                    shows.append(
+                        ShowResult(
+                            platform=self.name,
+                            movie_title=str(movie.get("n") or watch.movie_name),
+                            theatre=theatre,
+                            date=show_date,
+                            showtime=parsed_time.value,
+                            language=str(item.get("language") or ""),
+                            format=raw_format,
+                            booking_url=sanitize_url(url),
+                            city=city,
+                            raw_time=parsed_time.raw,
+                            normalized_time=parsed_time.normalized,
+                            display_time=parsed_time.display,
+                            time_source=parsed_time.source,
+                            time_verified=parsed_time.verified,
+                            timezone_treatment=parsed_time.timezone_treatment,
+                            session_id=session_id,
+                            bookable=True,
+                            time_fields=time_fields,
+                        )
+                    )
+        shows.sort(key=lambda show: (normalized_words(show.theatre), show.showtime, show.session_id))
         notes.append(
             f"identified exact movie ID {movie_id}; {session_nodes} session records, "
             f"{len(shows)} bookable candidates"
@@ -488,4 +592,5 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             page_title=f"{movie.get('n', watch.movie_name)} sessions in {watch.city}",
             structured_sources=sources,
             parser_version=PVR_PARSER_VERSION,
+            session_diagnostics=session_diagnostics,
         )

@@ -1,0 +1,33 @@
+{
+  "result": "success",
+  "msg": "Record found",
+  "output": {
+    "movie": {"id": "33296", "n": "JANA NAYAGAN"},
+    "movieCinemaSessions": [{
+      "cinema": {"theatreId": "388", "name": "PVR Palazzo-The Nexus Vijaya Mall", "cityName": "Chennai"},
+      "experienceSessions": [{"shows": [
+        {"status": 0, "sessionId": 1, "showDate": "2026-07-23", "showTime": "09:00 AM", "showTimeStamp": 1784777400000, "stopTimeStamp": 1784780100000, "endTime": "12:29 PM", "language": "Tamil", "filmFormat": "", "movieFormat": "ATMOS"},
+        {"status": 0, "sessionId": 2, "showDate": "2026-07-23", "showTime": "09:05 AM", "showTimeStamp": 1784777700000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 3, "showDate": "2026-07-23", "showTime": "09:10 AM", "showTimeStamp": 1784778000000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 4, "showDate": "2026-07-23", "showTime": "09:15 AM", "showTimeStamp": 1784778300000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 5, "showDate": "2026-07-23", "showTime": "09:20 AM", "showTimeStamp": 1784778600000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 6, "showDate": "2026-07-23", "showTime": "12:40 PM", "showTimeStamp": 1784790600000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 7, "showDate": "2026-07-23", "showTime": "12:50 PM", "showTimeStamp": 1784791200000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 8, "showDate": "2026-07-23", "showTime": "12:55 PM", "showTimeStamp": 1784791500000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 9, "showDate": "2026-07-23", "showTime": "04:00 PM", "showTimeStamp": 1784802600000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 10, "showDate": "2026-07-23", "showTime": "04:20 PM", "showTimeStamp": 1784803800000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 11, "showDate": "2026-07-23", "showTime": "04:30 PM", "showTimeStamp": 1784804400000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 12, "showDate": "2026-07-23", "showTime": "04:35 PM", "showTimeStamp": 1784804700000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 13, "showDate": "2026-07-23", "showTime": "07:40 PM", "showTimeStamp": 1784815800000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 14, "showDate": "2026-07-23", "showTime": "08:00 PM", "showTimeStamp": 1784817000000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 15, "showDate": "2026-07-23", "showTime": "08:10 PM", "showTimeStamp": 1784817600000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 16, "showDate": "2026-07-23", "showTime": "08:15 PM", "showTimeStamp": 1784817900000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 17, "showDate": "2026-07-23", "showTime": "11:40 PM", "showTimeStamp": 1784830200000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 18, "showDate": "2026-07-23", "showTime": "11:50 PM", "showTimeStamp": 1784830800000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 0, "sessionId": 19, "showDate": "2026-07-23", "showTime": "11:55 PM", "showTimeStamp": 1784831100000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 1, "sessionId": 20, "showDate": "2026-07-23", "showTime": "07:55 PM", "showTimeStamp": 1784816700000, "language": "Tamil", "filmFormat": "", "movieFormat": ""},
+        {"status": 1, "sessionId": 21, "showDate": "2026-07-23", "showTime": "11:35 PM", "showTimeStamp": 1784829900000, "language": "Tamil", "filmFormat": "", "movieFormat": ""}
+      ]}]
+    }]
+  }
+}

@@ -10,7 +10,7 @@
           {
             "shows": [
               {
-                "status": 1,
+                "status": 0,
                 "showDate": "2030-05-31",
                 "showTime": "07:30 PM",
                 "language": "English",

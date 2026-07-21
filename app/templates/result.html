@@ -60,14 +60,24 @@
 </section>
 <section>
   <h2>Detected matching shows</h2>
+  {% if historical_time_warning %}<p class="warning">Historical PVR records include times without verified source provenance. Run <code>python -m app.cli shows audit-times</code> before relying on those times.</p>{% endif %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Platform</th><th>Theatre</th><th>Date</th><th>Time</th><th>Language / format</th><th>Booking</th></tr></thead>
+    <thead><tr><th>Platform</th><th>Theatre</th><th>Date</th><th>Time</th><th>Verification</th><th>Language / format</th><th>Booking</th></tr></thead>
     <tbody>
-      {% for s in shows %}<tr><td>{{ s.platform }}</td><td>{{ s.theatre }}</td><td>{{ s.show_date }}</td><td>{{ s.showtime.strftime('%H:%M') }}</td><td>{{ s.language }} / {{ s.format }}</td><td><a href="{{ s.booking_url }}" rel="noopener">Open</a></td></tr>
-      {% else %}<tr><td colspan="6">No qualifying show has been detected.</td></tr>{% endfor %}
+      {% for s in shows %}<tr><td>{{ s.platform }}</td><td>{{ s.theatre }}</td><td>{{ s.show_date }}</td><td>{{ s.display_time if s.time_verified and s.display_time else ('SHOWTIME_UNVERIFIED' if s.platform == 'PVR INOX' else s.showtime.strftime('%H:%M')) }}</td><td>{{ 'Verified · ' ~ s.time_source if s.time_verified else 'Unverified' }}</td><td>{{ s.language }} / {{ s.format }}</td><td><a href="{{ s.booking_url }}" rel="noopener">Open</a></td></tr>
+      {% else %}<tr><td colspan="7">No qualifying show has been detected.</td></tr>{% endfor %}
     </tbody>
   </table></div>
 </section>
+{% if pvr_session_diagnostics %}
+<section>
+  <h2>PVR session time diagnostics</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Session</th><th>Theatre</th><th>Raw time fields</th><th>Source</th><th>Normalized</th><th>Display</th><th>Timezone</th><th>Status</th><th>Preset match</th></tr></thead>
+    <tbody>{% for d in pvr_session_diagnostics %}<tr><td>{{ d.session_id }}</td><td>{{ d.theatre }}<br>{{ d.date }} · {{ d.language }} / {{ d.format }}</td><td><code>{{ d.time_fields }}</code></td><td>{{ d.selected_field }}</td><td>{{ d.normalized_time }}</td><td>{{ d.display_time }}</td><td>{{ d.timezone_treatment }}</td><td>{{ d.verification_status }} · API {{ d.raw_status }} · {{ 'bookable' if d.bookable else 'not page-visible' }}</td><td>{{ 'Yes' if d.matched_time_preset else 'No' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
 <section>
   <h2>Recent checks</h2>
   {% for c in checks %}

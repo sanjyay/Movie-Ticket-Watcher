@@ -3,6 +3,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from hashlib import sha256
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.models import DetectedShow, NotificationHistory, PlatformCheck, PlatformState, Watch
 from app.schemas import ShowResult
-from app.services.matching import match_reason
+from app.services.matching import match_reason, normalized_words
 from app.time_presets import label_for
 
 # Bot API URLs contain the secret token in their path. HTTPX request logs must stay disabled.
@@ -98,6 +99,62 @@ def format_show_message(watch: Watch, show: ShowResult, detected_at: datetime | 
     return "\n".join(lines)
 
 
+def theatre_availability_fingerprint(watch: Watch, show: DetectedShow) -> str:
+    canonical_theatre = " ".join(normalized_words(show.theatre))
+    raw = "|".join(
+        (
+            str(watch.id),
+            show.platform.casefold(),
+            show.show_date.isoformat(),
+            canonical_theatre,
+            show.language.casefold(),
+            show.format.casefold(),
+        )
+    )
+    return sha256(raw.encode()).hexdigest()
+
+
+def format_pvr_theatre_message(watch: Watch, shows: list[DetectedShow]) -> str:
+    first = shows[0]
+    theatre = re.sub(r"(?<=\w)-(?=[A-Z])", " — ", first.theatre)
+    verified = sorted(
+        (item for item in shows if item.time_verified and item.normalized_time),
+        key=lambda item: item.normalized_time,
+    )
+    lines = [
+        "🎟 Ticket booking available",
+        "",
+        f"Movie: {watch.movie_name}",
+        "Platform: PVR INOX",
+        f"City: {watch.city}",
+        f"Date: {first.show_date.strftime('%d %B %Y').lstrip('0')}",
+        f"Theatre: {theatre}",
+        f"Language: {first.language}",
+        f"Format: {first.format}",
+        f"Available shows: {len(shows)}",
+        "",
+    ]
+    if not verified:
+        lines.extend(
+            [
+                "Exact showtimes could not be verified.",
+                "Open the booking page to view current timings.",
+            ]
+        )
+    elif len(verified) <= 19:
+        lines.extend(
+            ["Verified timings:", ", ".join(item.display_time for item in verified)]
+        )
+    else:
+        lines.extend(
+            [
+                f"Earliest show: {verified[0].display_time}",
+                f"Latest show: {verified[-1].display_time}",
+            ]
+        )
+    return "\n".join(lines)
+
+
 class TelegramDeliveryError(Exception):
     def __init__(self, message: str, *, temporary: bool = False, retry_after: float = 0) -> None:
         super().__init__(message)
@@ -169,6 +226,13 @@ class TelegramProvider:
             effective_chat_id(watch, self.settings),
             format_show_message(watch, show),
             safe_booking_url(show.booking_url),
+        )
+
+    async def send_pvr_theatre(self, watch: Watch, shows: list[DetectedShow]) -> int:
+        return await self._request(
+            effective_chat_id(watch, self.settings),
+            format_pvr_theatre_message(watch, shows),
+            safe_booking_url(shows[0].booking_url),
         )
 
     async def send_test(self, watch: Watch) -> int:
@@ -303,6 +367,100 @@ async def record_notification(
             delivery_status="SENT" if success else "FAILED",
             platform_check_id=check.id,
             detected_show_id=detected.id,
+        )
+    )
+    return success
+
+
+async def record_pvr_theatre_notification(
+    db: Session,
+    watch_id: int,
+    platform_check_id: int,
+    detected_show_ids: list[int],
+    provider: TelegramProvider | None = None,
+) -> bool:
+    """Send one PVR alert for a theatre/date while retaining session-level rows."""
+    provider = provider or TelegramProvider()
+    watch = db.get(Watch, watch_id)
+    check = db.get(PlatformCheck, platform_check_id)
+    shows = [db.get(DetectedShow, item_id) for item_id in detected_show_ids]
+    shows = [item for item in shows if item is not None]
+    if (
+        not watch
+        or not watch.enabled
+        or not watch.notifications_enabled
+        or watch.simulation_state != "OFF"
+        or not check
+        or check.watch_id != watch_id
+        or check.platform != "PVR INOX"
+        or check.status != PlatformState.AVAILABLE
+        or not shows
+        or any(item.watch_id != watch_id or item.platform != "PVR INOX" for item in shows)
+    ):
+        return False
+    for item in shows:
+        candidate = ShowResult(
+            item.platform,
+            item.movie_title,
+            item.theatre,
+            item.show_date,
+            item.showtime,
+            item.language,
+            item.format,
+            item.booking_url,
+            item.city,
+            raw_time=item.raw_time,
+            normalized_time=item.normalized_time,
+            display_time=item.display_time,
+            time_source=item.time_source,
+            time_verified=item.time_verified,
+            timezone_treatment=item.timezone_treatment,
+            session_id=item.session_id,
+        )
+        if not match_reason(watch, candidate)[0]:
+            return False
+    fingerprint = theatre_availability_fingerprint(watch, shows[0])
+    prior = db.scalar(
+        select(NotificationHistory)
+        .where(
+            NotificationHistory.watch_id == watch_id,
+            NotificationHistory.fingerprint == fingerprint,
+            NotificationHistory.provider == "telegram",
+            NotificationHistory.notification_source == "LIVE_AVAILABILITY",
+            NotificationHistory.success.is_(True),
+        )
+        .order_by(NotificationHistory.id.desc())
+    )
+    if prior:
+        became_unavailable = db.scalar(
+            select(PlatformCheck.id).where(
+                PlatformCheck.watch_id == watch_id,
+                PlatformCheck.platform == "PVR INOX",
+                PlatformCheck.id > (prior.platform_check_id or 0),
+                PlatformCheck.id < check.id,
+                PlatformCheck.status != PlatformState.AVAILABLE,
+            )
+        )
+        if not became_unavailable:
+            return False
+    success, attempts, error = False, 1, ""
+    try:
+        attempts = await provider.send_pvr_theatre(watch, shows)
+        success = True
+    except Exception as exc:
+        error = sanitize_telegram_error(exc, provider.settings.telegram_bot_token)
+    db.add(
+        NotificationHistory(
+            watch_id=watch_id,
+            fingerprint=fingerprint,
+            provider="telegram",
+            success=success,
+            attempts=attempts,
+            error=error,
+            notification_source="LIVE_AVAILABILITY",
+            delivery_status="SENT" if success else "FAILED",
+            platform_check_id=check.id,
+            detected_show_id=shows[0].id,
         )
     )
     return success

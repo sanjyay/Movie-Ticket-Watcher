@@ -19,7 +19,11 @@ from app.models import (
 from app.platforms.bookmyshow import BookMyShowAdapter
 from app.platforms.pvrinox import PvrInoxAdapter
 from app.schemas import PlatformResult, ShowResult
-from app.services.notifications import record_notification, record_simulation_notification
+from app.services.notifications import (
+    record_notification,
+    record_pvr_theatre_notification,
+    record_simulation_notification,
+)
 
 PLATFORM_NAMES = ("BookMyShow", "PVR INOX")
 
@@ -248,6 +252,7 @@ def _record_platform_check(
         block_classification=result.block_classification,
         ray_id=result.ray_id,
         parser_version=result.parser_version,
+        session_diagnostics=json.dumps(result.session_diagnostics, ensure_ascii=False),
     )
     db.add(check)
     db.flush()
@@ -331,6 +336,7 @@ async def run_watch_check(
             db, watch, result, record_transition=watch.simulation_state == "OFF"
         )
         total += len(result.shows)
+        pvr_groups: dict[tuple[str, str, str, str], list[DetectedShow]] = {}
         for show in result.shows:
             if watch.simulation_state != "OFF":
                 if watch.enabled and watch.notifications_enabled:
@@ -344,7 +350,10 @@ async def run_watch_check(
             )
             if detected:
                 detected.last_seen_at = now
-                if watch.notifications_enabled and not detected.notification_sent:
+                if result.platform == "PVR INOX":
+                    key = (show.theatre, show.date.isoformat(), show.language, show.format)
+                    pvr_groups.setdefault(key, []).append(detected)
+                elif watch.notifications_enabled and not detected.notification_sent:
                     detected.notification_sent = await record_notification(
                         db, watch.id, check.id, detected.id
                     )
@@ -361,13 +370,31 @@ async def run_watch_check(
                 format=show.format,
                 booking_url=show.booking_url,
                 city=show.city,
+                raw_time=show.raw_time,
+                normalized_time=show.normalized_time,
+                display_time=show.display_time,
+                time_source=show.time_source,
+                time_verified=show.time_verified,
+                timezone_treatment=show.timezone_treatment,
+                session_id=show.session_id,
             )
             db.add(detected)
             db.flush()
-            if watch.notifications_enabled:
+            if result.platform == "PVR INOX":
+                key = (show.theatre, show.date.isoformat(), show.language, show.format)
+                pvr_groups.setdefault(key, []).append(detected)
+            elif watch.notifications_enabled:
                 detected.notification_sent = await record_notification(
                     db, watch.id, check.id, detected.id
                 )
+        if result.platform == "PVR INOX" and watch.notifications_enabled:
+            for detected_group in pvr_groups.values():
+                sent = await record_pvr_theatre_notification(
+                    db, watch.id, check.id, [item.id for item in detected_group]
+                )
+                if sent:
+                    for item in detected_group:
+                        item.notification_sent = True
 
     all_names = enabled_platforms(watch)
     states = [retry_state(db, watch, name).last_status for name in all_names]

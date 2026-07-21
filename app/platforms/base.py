@@ -27,6 +27,12 @@ class TicketPlatformAdapter(ABC):
         try:
             raw = await self.raw_search(watch)
             matches, reasons = filter_shows(watch, raw.shows)
+            matched_sessions = {show.session_id for show in matches if show.session_id}
+            for diagnostic in raw.session_diagnostics:
+                diagnostic["matched_time_preset"] = (
+                    bool(diagnostic.get("session_id"))
+                    and diagnostic.get("session_id") in matched_sessions
+                )
             reason = "; ".join(raw.diagnostics + reasons)[:4000]
             status = (
                 PlatformState.AVAILABLE
@@ -55,6 +61,7 @@ class TicketPlatformAdapter(ABC):
                 block_classification=raw.block_classification,
                 ray_id=raw.ray_id,
                 parser_version=raw.parser_version,
+                session_diagnostics=raw.session_diagnostics,
             )
         except ConfigurationRequiredError as exc:
             return PlatformResult(

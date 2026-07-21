@@ -57,12 +57,24 @@ def init_db() -> None:
                 if "notification_history" in existing_tables
                 else set()
             )
+            existing_show_columns = (
+                {column["name"] for column in inspector.get_columns("detected_shows")}
+                if "detected_shows" in existing_tables
+                else set()
+            )
+            existing_check_columns = (
+                {column["name"] for column in inspector.get_columns("platform_checks")}
+                if "platform_checks" in existing_tables
+                else set()
+            )
             migration_needed = "watches" in existing_tables and (
                 "telegram_chat_id_override" not in existing_watch_columns
                 or "notifications_enabled" not in existing_watch_columns
                 or "telegram_conversation_state" not in existing_tables
                 or "telegram_watch_creations" not in existing_tables
                 or "notification_source" not in existing_history_columns
+                or "time_verified" not in existing_show_columns
+                or "session_diagnostics" not in existing_check_columns
             )
             if migration_needed:
                 database_path = Path(settings.database_url.removeprefix("sqlite:///"))
@@ -198,11 +210,27 @@ def init_db() -> None:
                     "block_classification": "VARCHAR(80) DEFAULT ''",
                     "ray_id": "VARCHAR(120) DEFAULT ''",
                     "parser_version": "VARCHAR(40) DEFAULT ''",
+                    "session_diagnostics": "TEXT DEFAULT ''",
                 }
                 for column, definition in check_migrations.items():
                     if column not in check_columns:
                         connection.execute(
                             text(f"ALTER TABLE platform_checks ADD COLUMN {column} {definition}")
+                        )
+                show_migrations = {
+                    "raw_time": "TEXT DEFAULT ''",
+                    "normalized_time": "VARCHAR(5) DEFAULT ''",
+                    "display_time": "VARCHAR(20) DEFAULT ''",
+                    "time_source": "VARCHAR(80) DEFAULT ''",
+                    "time_verified": "BOOLEAN DEFAULT 1",
+                    "timezone_treatment": "VARCHAR(120) DEFAULT ''",
+                    "session_id": "VARCHAR(120) DEFAULT ''",
+                    "legacy_time_invalidated": "BOOLEAN DEFAULT 0",
+                }
+                for column, definition in show_migrations.items():
+                    if column not in show_columns:
+                        connection.execute(
+                            text(f"ALTER TABLE detected_shows ADD COLUMN {column} {definition}")
                         )
                 connection.execute(
                     text(

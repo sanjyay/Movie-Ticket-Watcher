@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
@@ -376,6 +377,15 @@ def result(watch_id: int, request: Request, db: Session = Depends(get_db)):
     retry_states = {
         platform: retry_state(db, watch, platform) for platform in enabled_platforms(watch)
     }
+    pvr_check = latest_checks.get("PVR INOX")
+    try:
+        pvr_session_diagnostics = json.loads(pvr_check.session_diagnostics) if pvr_check else []
+    except (TypeError, ValueError):
+        pvr_session_diagnostics = []
+    historical_time_warning = any(
+        show.platform == "PVR INOX" and (not show.time_verified or not show.time_source)
+        for show in shows
+    )
     db.commit()
     return templates.TemplateResponse(
         "result.html",
@@ -386,6 +396,8 @@ def result(watch_id: int, request: Request, db: Session = Depends(get_db)):
             checks=checks,
             latest_checks=latest_checks,
             retry_states=retry_states,
+            pvr_session_diagnostics=pvr_session_diagnostics,
+            historical_time_warning=historical_time_warning,
         ),
     )
 
@@ -548,6 +560,9 @@ def download_platform_diagnostic(
             "error": check.error,
             "screenshot_filename": __import__("pathlib").Path(check.screenshot_path).name,
             "parser_version": check.parser_version,
+            "session_diagnostics": (
+                json.loads(check.session_diagnostics) if check.session_diagnostics else []
+            ),
         }
     response = JSONResponse(report)
     response.headers["Content-Disposition"] = (

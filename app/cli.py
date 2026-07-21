@@ -49,12 +49,56 @@ def pending(clean: bool = False) -> int:
     return 0
 
 
+def legacy_pvr_times(invalidate: bool = False, confirmed: bool = False) -> int:
+    init_db()
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(DetectedShow).where(
+                DetectedShow.platform == "PVR INOX",
+                DetectedShow.time_source == "",
+                DetectedShow.legacy_time_invalidated.is_(False),
+            )
+        ).all()
+        for row in rows:
+            print(
+                f"show_id={row.id} watch_id={row.watch_id} theatre={row.theatre!r} "
+                f"date={row.show_date} legacy_time={row.showtime.strftime('%H:%M')} "
+                "status=LEGACY_TIME_UNVERIFIED"
+            )
+        if not invalidate:
+            print(f"Found {len(rows)} legacy PVR show record(s); no records changed.")
+            return 0
+        if not confirmed:
+            print("Refusing to change records without --confirm-invalidate-legacy-times.")
+            return 2
+        for row in rows:
+            row.time_verified = False
+            row.normalized_time = ""
+            row.display_time = ""
+            row.time_source = "legacy-pvr-public-json-v1"
+            row.timezone_treatment = "SHOWTIME_UNVERIFIED"
+            row.legacy_time_invalidated = True
+            # Retain session/history rows, but never enqueue this legacy row again.
+            row.notification_sent = True
+        db.commit()
+        print(f"Invalidated {len(rows)} legacy PVR time(s); history was preserved.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     group = parser.add_subparsers(dest="group", required=True)
     notifications = group.add_parser("notifications")
     notifications.add_argument("action", choices=("pending", "clean-orphans"))
+    shows = group.add_parser("shows")
+    shows.add_argument("action", choices=("audit-times", "invalidate-legacy-times"))
+    shows.add_argument("--confirm-invalidate-legacy-times", action="store_true")
     args = parser.parse_args()
+    if args.group == "shows":
+        return legacy_pvr_times(
+            invalidate=args.action == "invalidate-legacy-times",
+            confirmed=args.confirm_invalidate_legacy_times,
+        )
     return pending(clean=args.action == "clean-orphans")
 
 
