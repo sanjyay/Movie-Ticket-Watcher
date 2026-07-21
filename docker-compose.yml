@@ -4,6 +4,11 @@ x-app: &app
   env_file: .env
   environment:
     TZ: ${APP_TIMEZONE:-Asia/Kolkata}
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_DEFAULT_CHAT_ID: ${TELEGRAM_DEFAULT_CHAT_ID:-}
+    TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
+    TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+    TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
   user: "${PUID:-1000}:${PGID:-1000}"
   volumes:
     - ./data:/data
@@ -51,6 +56,20 @@ services:
       interval: 30s
       timeout: 10s
       start_period: 45s
+      retries: 3
+
+  telegram-bot:
+    <<: *app
+    container_name: movie-ticket-watcher-telegram-bot
+    command: telegram-bot
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, /app/scripts/healthcheck.py, --telegram-bot]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
       retries: 3
 
   test:

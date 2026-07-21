@@ -57,7 +57,7 @@ def test_invalid_existing_preset_range_migrates(tmp_path, monkeypatch) -> None:
                 "(movie_name, city, show_date, language, format, time_preset, start_time, end_time, "
                 "preferred_theatres, bookmyshow_enabled, pvrinox_enabled, bookmyshow_url, "
                 "pvrinox_url, bookmyshow_discovered_url, pvrinox_discovered_url, "
-                "polling_interval_seconds, ntfy_topic, notification_enabled, enabled, "
+                "polling_interval_seconds, telegram_chat_id_override, notifications_enabled, enabled, "
                 "simulation_state, last_status, last_error, matching_show_count, created_at) "
                 "VALUES ('Spider-Man: Brand New Day', 'Bengaluru', '2030-05-31', 'English', "
                 "'2D', 'EVENING', '22:00:00.000000', '13:59:00.000000', '', 1, 1, '', '', "
@@ -88,13 +88,13 @@ def _form(**overrides: str) -> dict[str, str]:
         "end_time": "21:59",
         "preferred_theatres": "",
         "polling_interval_seconds": "300",
-        "ntfy_topic": "",
+        "telegram_chat_id_override": "12345",
         "simulation_state": "OFF",
         "bookmyshow_url": "",
         "pvrinox_url": "",
         "bookmyshow_enabled": "on",
         "pvrinox_enabled": "on",
-        "notification_enabled": "on",
+        "notifications_enabled": "on",
         "enabled": "on",
     }
     values.update(overrides)

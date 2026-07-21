@@ -1,5 +1,8 @@
 import fcntl
+import sqlite3
 from collections.abc import Generator
+from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -41,12 +44,95 @@ def init_db() -> None:
     lock_path = settings.data_dir / "database-init.lock"
     with lock_path.open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if settings.database_url.startswith("sqlite"):
+            inspector = inspect(engine)
+            existing_tables = set(inspector.get_table_names())
+            existing_watch_columns = (
+                {column["name"] for column in inspector.get_columns("watches")}
+                if "watches" in existing_tables
+                else set()
+            )
+            existing_history_columns = (
+                {column["name"] for column in inspector.get_columns("notification_history")}
+                if "notification_history" in existing_tables
+                else set()
+            )
+            migration_needed = "watches" in existing_tables and (
+                "telegram_chat_id_override" not in existing_watch_columns
+                or "notifications_enabled" not in existing_watch_columns
+                or "telegram_conversation_state" not in existing_tables
+                or "telegram_watch_creations" not in existing_tables
+                or "notification_source" not in existing_history_columns
+            )
+            if migration_needed:
+                database_path = Path(settings.database_url.removeprefix("sqlite:///"))
+                if database_path.exists():
+                    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+                    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                    backup_path = settings.backup_dir / f"pre-telegram-{stamp}.db"
+                    with (
+                        sqlite3.connect(database_path) as source,
+                        sqlite3.connect(backup_path) as destination,
+                    ):
+                        source.backup(destination)
         Base.metadata.create_all(engine)
         if settings.database_url.startswith("sqlite"):
             inspector = inspect(engine)
             watch_columns = {column["name"] for column in inspector.get_columns("watches")}
             check_columns = {column["name"] for column in inspector.get_columns("platform_checks")}
+            history_columns = {
+                column["name"] for column in inspector.get_columns("notification_history")
+            }
+            show_columns = {column["name"] for column in inspector.get_columns("detected_shows")}
             with engine.begin() as connection:
+                if "telegram_chat_id_override" not in watch_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE watches ADD COLUMN telegram_chat_id_override VARCHAR(32) DEFAULT ''"
+                        )
+                    )
+                if "notifications_enabled" not in watch_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE watches ADD COLUMN notifications_enabled BOOLEAN DEFAULT 1"
+                        )
+                    )
+                    # Legacy pre-Telegram enable flag: copy once, then never read/write it.
+                    if "notification_enabled" in watch_columns:
+                        connection.execute(
+                            text("UPDATE watches SET notifications_enabled = notification_enabled")
+                        )
+                if "is_test" not in history_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE notification_history ADD COLUMN is_test BOOLEAN DEFAULT 0"
+                        )
+                    )
+                history_migrations = {
+                    "notification_source": "VARCHAR(30) DEFAULT 'LIVE_AVAILABILITY'",
+                    "delivery_status": "VARCHAR(20) DEFAULT 'FAILED'",
+                    "cancellation_reason": "TEXT DEFAULT ''",
+                    "platform_check_id": "INTEGER",
+                    "detected_show_id": "INTEGER",
+                }
+                for column, definition in history_migrations.items():
+                    if column not in history_columns:
+                        connection.execute(
+                            text(
+                                f"ALTER TABLE notification_history ADD COLUMN {column} {definition}"
+                            )
+                        )
+                connection.execute(
+                    text(
+                        "UPDATE notification_history SET notification_source = "
+                        "CASE WHEN is_test = 1 THEN 'TEST' ELSE COALESCE(notification_source, 'LIVE_AVAILABILITY') END, "
+                        "delivery_status = CASE WHEN success = 1 THEN 'SENT' ELSE COALESCE(delivery_status, 'FAILED') END"
+                    )
+                )
+                if "city" not in show_columns:
+                    connection.execute(
+                        text("ALTER TABLE detected_shows ADD COLUMN city VARCHAR(100) DEFAULT ''")
+                    )
                 if "time_preset" not in watch_columns:
                     connection.execute(
                         text(
@@ -64,8 +150,7 @@ def init_db() -> None:
                 if "pvrinox_discovered_url" not in watch_columns:
                     connection.execute(
                         text(
-                            "ALTER TABLE watches ADD COLUMN pvrinox_discovered_url TEXT "
-                            "DEFAULT ''"
+                            "ALTER TABLE watches ADD COLUMN pvrinox_discovered_url TEXT DEFAULT ''"
                         )
                     )
                 added_bookmyshow_mode = "bookmyshow_mode" not in watch_columns
@@ -86,9 +171,7 @@ def init_db() -> None:
                     )
                 if "bookmyshow_direct_url" not in watch_columns:
                     connection.execute(
-                        text(
-                            "ALTER TABLE watches ADD COLUMN bookmyshow_direct_url TEXT DEFAULT ''"
-                        )
+                        text("ALTER TABLE watches ADD COLUMN bookmyshow_direct_url TEXT DEFAULT ''")
                     )
                 if "pvrinox_direct_url" not in watch_columns:
                     connection.execute(
@@ -96,16 +179,11 @@ def init_db() -> None:
                     )
                 if "checked_url" not in check_columns:
                     connection.execute(
-                        text(
-                            "ALTER TABLE platform_checks ADD COLUMN checked_url TEXT DEFAULT ''"
-                        )
+                        text("ALTER TABLE platform_checks ADD COLUMN checked_url TEXT DEFAULT ''")
                     )
                 if "phase" not in check_columns:
                     connection.execute(
-                        text(
-                            "ALTER TABLE platform_checks ADD COLUMN phase VARCHAR(40) "
-                            "DEFAULT ''"
-                        )
+                        text("ALTER TABLE platform_checks ADD COLUMN phase VARCHAR(40) DEFAULT ''")
                     )
                 check_migrations = {
                     "configured_mode": "VARCHAR(20) DEFAULT ''",

@@ -1,13 +1,43 @@
 # CasaOS deployment
 
-Replace `REPOSITORY_OWNER` in `docker-compose.yml` and generate `SECRET_KEY` with `openssl rand -hex 48`. The app has no built-in login screen, so expose it only on a trusted LAN or behind your own reverse proxy/VPN authentication. Private GHCR packages require a GitHub PAT with `read:packages` configured in CasaOS/Docker.
+CasaOS requires all three services: web serves the dashboard, worker monitors watches, and telegram-bot performs outbound long polling. Give all three the same `/data` and `/config` mounts and environment, expose port 8787 only from web, and set `TELEGRAM_ALLOWED_CHAT_IDS` explicitly. Long polling requires no port forwarding.
 
-## Method A — Custom App
+Confirm health with `docker compose ps` and inspect interaction logs with `docker compose logs telegram-bot`. Manual `getUpdates` can be empty while the bot consumes updates. For diagnostics, run `docker compose stop telegram-bot`, send the bot a fresh message, call `getUpdates`, then `docker compose start telegram-bot`. If `getWebhookInfo` returns a URL, remove it with `deleteWebhook` only after choosing to abandon that webhook; the application never deletes it automatically.
 
-Create two containers from `ghcr.io/OWNER/movie-ticket-watcher:latest`: `movie-ticket-watcher-web` with command `web` and port `8787:8787`, and `movie-ticket-watcher-worker` with command `worker` and no ports. Map `/DATA/AppData/movie-ticket-watcher/data` to `/data` and `/DATA/AppData/movie-ticket-watcher/config` to `/config` in both. Enter the environment variables shown in the Compose file, use `unless-stopped`, 1 GB shared memory, and start with 1 GB RAM/1 CPU per service (2 GB available to the deployment is more comfortable during concurrent browser checks). Do not enable privileged mode or mount the Docker socket.
+Replace `REPOSITORY_OWNER` in `docker-compose.yml`, generate `SECRET_KEY` with `openssl rand -hex 48`, and import the Compose file. Both the web and worker containers must receive `TELEGRAM_BOT_TOKEN`, `TELEGRAM_DEFAULT_CHAT_ID`, and `TELEGRAM_API_BASE`. Keep the API base at `https://api.telegram.org`.
 
-## Method B — Compose import
+Map `/DATA/AppData/movie-ticket-watcher/data:/data` and `/DATA/AppData/movie-ticket-watcher/config:/config` in both containers. Expose only web port `8787`, use commands `web` and `worker`, and never enable privileged mode or mount the Docker socket. Recreating containers preserves SQLite and screenshots in the data mount.
 
-Paste/import `casaos/docker-compose.yml`, replace the image owner, and supply `SECRET_KEY`. Recreating either container preserves the database because it is at `/DATA/AppData/movie-ticket-watcher/data/tickets.db` on the host. If permissions fail, run `sudo chown -R PUID:PGID /DATA/AppData/movie-ticket-watcher/{data,config}` only after confirming those exact paths.
+## Telegram setup
 
-After launch, configure BookMyShow and PVR INOX independently as **Automatic discovery**, **Direct URL**, or **Disabled**. Direct mode requires an official platform URL; automatic mode does not. Cloudflare or platform-protection responses are never bypassed. Their per-platform cooldown is persisted under the same database and defaults to 30 minutes, 1 hour, 3 hours, then at most 6 hours; the `BLOCKED_RETRY_*_SECONDS` variables in the Compose example can tune those values.
+1. Open Telegram.
+2. Open `@BotFather`.
+3. Send `/newbot`.
+4. Save the generated bot token privately.
+5. Open the newly created bot.
+6. Tap **Start** or send `/start`.
+7. Send a message such as `hello`.
+8. Obtain the chat ID with `getUpdates`.
+9. Test `sendMessage` with curl.
+10. Enter `TELEGRAM_BOT_TOKEN` in CasaOS.
+11. Enter `TELEGRAM_DEFAULT_CHAT_ID` in CasaOS.
+12. Keep `TELEGRAM_API_BASE` as `https://api.telegram.org`.
+13. Recreate or restart both containers.
+14. Open Movie Ticket Watcher.
+15. Click **Test Telegram** on a watch.
+
+```bash
+BOT_TOKEN='your-token'
+
+curl -s \
+  "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates"
+
+CHAT_ID='your-chat-id'
+
+curl -sS -X POST \
+  "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+  --data-urlencode "chat_id=${CHAT_ID}" \
+  --data-urlencode "text=Movie Ticket Watcher test"
+```
+
+Never publish or commit the bot token. Private chat IDs are positive; group and channel IDs are normally negative. If permissions fail, run `sudo chown -R PUID:PGID /DATA/AppData/movie-ticket-watcher/{data,config}` only after confirming those exact paths.

@@ -64,9 +64,7 @@ async def test_block_cooldown_persists_and_other_platform_continues(db, watch, m
     db.add(watch)
     db.commit()
     await run_watch_check(db, watch)
-    state = db.scalar(
-        select(PlatformRetryState).where(PlatformRetryState.platform == "BookMyShow")
-    )
+    state = db.scalar(select(PlatformRetryState).where(PlatformRetryState.platform == "BookMyShow"))
     assert state is not None
     assert state.consecutive_block_count == 1
     blocked_until = state.blocked_until
@@ -94,19 +92,14 @@ async def test_manual_retry_bypasses_cooldown_once_without_block_notification(
 
     monkeypatch.setattr("app.platforms.bookmyshow.BookMyShowAdapter.search", blocked)
     monkeypatch.setattr("app.platforms.pvrinox.PvrInoxAdapter.search", unavailable)
-    watch.ntfy_topic = "fixture-topic"
     db.add(watch)
     db.commit()
     await run_watch_check(db, watch)
     await run_watch_check(db, watch)
     assert calls == 1
-    await run_watch_check(
-        db, watch, only_platform="BookMyShow", bypass_cooldown=True
-    )
+    await run_watch_check(db, watch, only_platform="BookMyShow", bypass_cooldown=True)
     assert calls == 2
-    state = db.scalar(
-        select(PlatformRetryState).where(PlatformRetryState.platform == "BookMyShow")
-    )
+    state = db.scalar(select(PlatformRetryState).where(PlatformRetryState.platform == "BookMyShow"))
     assert state.consecutive_block_count == 2
     assert db.scalar(select(func.count()).select_from(NotificationHistory)) == 0
 

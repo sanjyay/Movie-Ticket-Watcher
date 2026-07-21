@@ -5,10 +5,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import Base
 from app.models import Watch
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def disable_real_telegram(monkeypatch):  # type: ignore[no-untyped-def]
+    """Automated tests must never inherit live Telegram credentials from .env."""
+    monkeypatch.setattr(get_settings(), "telegram_bot_token", "")
 
 
 @pytest.fixture
@@ -35,6 +42,6 @@ def watch() -> Watch:
         bookmyshow_mode="AUTOMATIC",
         pvrinox_mode="AUTOMATIC",
         polling_interval_seconds=300,
-        notification_enabled=True,
+        notifications_enabled=True,
         enabled=True,
     )

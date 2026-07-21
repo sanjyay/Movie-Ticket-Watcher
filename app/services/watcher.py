@@ -19,7 +19,7 @@ from app.models import (
 from app.platforms.bookmyshow import BookMyShowAdapter
 from app.platforms.pvrinox import PvrInoxAdapter
 from app.schemas import PlatformResult, ShowResult
-from app.services.notifications import record_notification
+from app.services.notifications import record_notification, record_simulation_notification
 
 PLATFORM_NAMES = ("BookMyShow", "PVR INOX")
 
@@ -154,7 +154,11 @@ def retry_state(db: Session, watch: Watch, platform: str) -> PlatformRetryState:
 def _aware_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    return (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
 
 
 def blocked_cooldown_seconds(count: int) -> int:
@@ -164,7 +168,9 @@ def blocked_cooldown_seconds(count: int) -> int:
     if count == 2:
         return settings.blocked_retry_second_seconds
     multiplier = 2 ** (count - 3)
-    return min(settings.blocked_retry_subsequent_seconds * multiplier, settings.blocked_retry_max_seconds)
+    return min(
+        settings.blocked_retry_subsequent_seconds * multiplier, settings.blocked_retry_max_seconds
+    )
 
 
 WAITING_STATES = {PlatformState.UNAVAILABLE, PlatformState.PAGE_LOADED_NO_SHOWS}
@@ -199,9 +205,11 @@ def aggregate_watch_status(states: list[str], *, watch_enabled: bool = True) -> 
     return "WAITING"
 
 
-def _record_platform_check(db: Session, watch: Watch, result: PlatformResult) -> None:
+def _record_platform_check(
+    db: Session, watch: Watch, result: PlatformResult, *, record_transition: bool = True
+) -> PlatformCheck:
     old = previous_state(db, watch.id, result.platform)
-    if old != result.status:
+    if record_transition and old != result.status:
         db.add(
             StateTransition(
                 watch_id=watch.id,
@@ -218,31 +226,32 @@ def _record_platform_check(db: Session, watch: Watch, result: PlatformResult) ->
             .order_by(PlatformCheck.id.desc())
         )
         failure_count = (prior.failure_count if prior else 0) + 1
-    db.add(
-        PlatformCheck(
-            watch_id=watch.id,
-            platform=result.platform,
-            status=result.status,
-            error=result.error,
-            reason=result.reason,
-            checked_url=result.checked_url,
-            phase=result.phase,
-            screenshot_path=result.screenshot_path,
-            failure_count=failure_count,
-            configured_mode=result.configured_mode,
-            supplied_url=result.supplied_url,
-            discovered_url=result.discovered_url,
-            final_url=result.final_url,
-            page_outcome=result.page_outcome,
-            page_title=result.page_title,
-            structured_sources=json.dumps(result.structured_sources),
-            raw_candidate_count=result.raw_candidate_count,
-            matching_count=result.matching_count,
-            block_classification=result.block_classification,
-            ray_id=result.ray_id,
-            parser_version=result.parser_version,
-        )
+    check = PlatformCheck(
+        watch_id=watch.id,
+        platform=result.platform,
+        status=result.status,
+        error=result.error,
+        reason=result.reason,
+        checked_url=result.checked_url,
+        phase=result.phase,
+        screenshot_path=result.screenshot_path,
+        failure_count=failure_count,
+        configured_mode=result.configured_mode,
+        supplied_url=result.supplied_url,
+        discovered_url=result.discovered_url,
+        final_url=result.final_url,
+        page_outcome=result.page_outcome,
+        page_title=result.page_title,
+        structured_sources=json.dumps(result.structured_sources),
+        raw_candidate_count=result.raw_candidate_count,
+        matching_count=result.matching_count,
+        block_classification=result.block_classification,
+        ray_id=result.ray_id,
+        parser_version=result.parser_version,
     )
+    db.add(check)
+    db.flush()
+    return check
 
 
 async def run_watch_check(
@@ -318,9 +327,15 @@ async def run_watch_check(
             PlatformState.PARSE_UNSUPPORTED,
         }:
             errors.append(f"{result.platform}: {result.error or result.reason}")
-        _record_platform_check(db, watch, result)
+        check = _record_platform_check(
+            db, watch, result, record_transition=watch.simulation_state == "OFF"
+        )
         total += len(result.shows)
         for show in result.shows:
+            if watch.simulation_state != "OFF":
+                if watch.enabled and watch.notifications_enabled:
+                    await record_simulation_notification(db, watch, show)
+                continue
             detected = db.scalar(
                 select(DetectedShow).where(
                     DetectedShow.watch_id == watch.id,
@@ -329,6 +344,10 @@ async def run_watch_check(
             )
             if detected:
                 detected.last_seen_at = now
+                if watch.notifications_enabled and not detected.notification_sent:
+                    detected.notification_sent = await record_notification(
+                        db, watch.id, check.id, detected.id
+                    )
                 continue
             detected = DetectedShow(
                 watch_id=watch.id,
@@ -341,11 +360,14 @@ async def run_watch_check(
                 language=show.language,
                 format=show.format,
                 booking_url=show.booking_url,
+                city=show.city,
             )
             db.add(detected)
             db.flush()
-            if watch.notification_enabled and watch.ntfy_topic:
-                detected.notification_sent = await record_notification(db, watch, show)
+            if watch.notifications_enabled:
+                detected.notification_sent = await record_notification(
+                    db, watch.id, check.id, detected.id
+                )
 
     all_names = enabled_platforms(watch)
     states = [retry_state(db, watch, name).last_status for name in all_names]

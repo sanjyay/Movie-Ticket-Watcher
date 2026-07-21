@@ -8,9 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_bind: str = "0.0.0.0"
     app_port: int = 8787
@@ -21,10 +19,14 @@ class Settings(BaseSettings):
     screenshot_dir: Path = Path("./screenshots")
     log_dir: Path = Path("./logs")
     backup_dir: Path = Path("./backups")
-    ntfy_server: str = "https://ntfy.sh"
-    ntfy_token: str = ""
-    ntfy_username: str = ""
-    ntfy_password: str = ""
+    telegram_bot_token: str = ""
+    telegram_default_chat_id: str = ""
+    telegram_api_base: str = "https://api.telegram.org"
+    telegram_allowed_chat_ids: str = ""
+    telegram_allowed_user_ids: str = ""
+    telegram_conversation_timeout_seconds: int = 1800
+    telegram_long_poll_timeout_seconds: int = 25
+    telegram_stale_update_age_seconds: int = 300
     secret_key: str = "development-only-change-me"
     default_poll_interval_seconds: int = 300
     min_poll_interval_seconds: int = 120
@@ -49,9 +51,18 @@ class Settings(BaseSettings):
             ZoneInfo(self.app_timezone)
         except Exception as exc:
             raise ValueError(f"Invalid APP_TIMEZONE: {self.app_timezone}") from exc
-        parsed_ntfy = urlparse(self.ntfy_server)
-        if parsed_ntfy.scheme != "https" or not parsed_ntfy.netloc:
-            raise ValueError("NTFY_SERVER must be an absolute https:// URL")
+        parsed_telegram = urlparse(self.telegram_api_base)
+        if parsed_telegram.scheme != "https" or not parsed_telegram.netloc:
+            raise ValueError("TELEGRAM_API_BASE must be an absolute https:// URL")
+        for name, raw in (
+            ("TELEGRAM_ALLOWED_CHAT_IDS", self.telegram_allowed_chat_ids),
+            ("TELEGRAM_ALLOWED_USER_IDS", self.telegram_allowed_user_ids),
+        ):
+            for value in filter(None, (item.strip() for item in raw.split(","))):
+                if not value.lstrip("-").isdigit() or value in {"0", "-0"}:
+                    raise ValueError(f"{name} contains an invalid numeric ID")
+        if not 5 <= self.telegram_long_poll_timeout_seconds <= 50:
+            raise ValueError("TELEGRAM_LONG_POLL_TIMEOUT_SECONDS must be between 5 and 50")
         if self.min_poll_interval_seconds < 30:
             raise ValueError("MIN_POLL_INTERVAL_SECONDS must be at least 30")
         cooldowns = (

@@ -9,6 +9,6 @@ def test_container_requires_session_secret() -> None:
         Settings(_env_file=None, container_deployment=True, secret_key="short")
 
 
-def test_invalid_ntfy_url_fails_clearly() -> None:
-    with pytest.raises(ValidationError, match="NTFY_SERVER"):
-        Settings(_env_file=None, ntfy_server="http://insecure.example")
+def test_invalid_telegram_url_fails_clearly() -> None:
+    with pytest.raises(ValidationError, match="TELEGRAM_API_BASE"):
+        Settings(_env_file=None, telegram_api_base="http://insecure.example")

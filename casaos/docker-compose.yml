@@ -12,8 +12,11 @@ x-common: &common
     LOG_DIR: /data/logs
     BACKUP_DIR: /data/backups
     CONFIG_DIR: /config
-    NTFY_SERVER: ${NTFY_SERVER:-https://ntfy.sh}
-    NTFY_TOKEN: ${NTFY_TOKEN:-}
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_DEFAULT_CHAT_ID: ${TELEGRAM_DEFAULT_CHAT_ID:-}
+    TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
+    TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+    TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
     BLOCKED_RETRY_FIRST_SECONDS: ${BLOCKED_RETRY_FIRST_SECONDS:-1800}
     BLOCKED_RETRY_SECOND_SECONDS: ${BLOCKED_RETRY_SECOND_SECONDS:-3600}
     BLOCKED_RETRY_SUBSEQUENT_SECONDS: ${BLOCKED_RETRY_SUBSEQUENT_SECONDS:-10800}
@@ -57,3 +60,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 45s
+  telegram-bot:
+    <<: *common
+    container_name: movie-ticket-watcher-telegram-bot
+    command: telegram-bot
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, /app/scripts/healthcheck.py, --telegram-bot]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

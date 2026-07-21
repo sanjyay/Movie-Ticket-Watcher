@@ -69,8 +69,16 @@ class Watch(Base):
     bookmyshow_discovered_url: Mapped[str] = mapped_column(Text, default="")
     pvrinox_discovered_url: Mapped[str] = mapped_column(Text, default="")
     polling_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
-    ntfy_topic: Mapped[str] = mapped_column(String(250), default="")
-    notification_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    telegram_chat_id_override: Mapped[str] = mapped_column(String(32), default="")
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Legacy SQLite compatibility only. Old databases made these columns NOT NULL;
+    # map them privately so new inserts use inert values without restoring ntfy behavior.
+    _legacy_ntfy_topic: Mapped[str] = mapped_column(
+        "ntfy_topic", Text, default="", server_default=""
+    )
+    _legacy_notification_enabled: Mapped[bool] = mapped_column(
+        "notification_enabled", Boolean, default=True, server_default="1"
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     simulation_state: Mapped[str] = mapped_column(String(20), default="OFF")
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -116,9 +124,7 @@ class PlatformRetryState(Base):
     __tablename__ = "platform_retry_state"
     __table_args__ = (UniqueConstraint("watch_id", "platform"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    watch_id: Mapped[int] = mapped_column(
-        ForeignKey("watches.id", ondelete="CASCADE"), index=True
-    )
+    watch_id: Mapped[int] = mapped_column(ForeignKey("watches.id", ondelete="CASCADE"), index=True)
     platform: Mapped[str] = mapped_column(String(30))
     consecutive_block_count: Mapped[int] = mapped_column(Integer, default=0)
     blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -144,6 +150,7 @@ class DetectedShow(Base):
     language: Mapped[str] = mapped_column(String(50))
     format: Mapped[str] = mapped_column(String(50))
     booking_url: Mapped[str] = mapped_column(Text)
+    city: Mapped[str] = mapped_column(String(100), default="")
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -164,7 +171,13 @@ class NotificationHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     watch_id: Mapped[int] = mapped_column(ForeignKey("watches.id", ondelete="CASCADE"), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64), default="")
-    provider: Mapped[str] = mapped_column(String(30), default="ntfy")
+    provider: Mapped[str] = mapped_column(String(30), default="telegram")
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    notification_source: Mapped[str] = mapped_column(String(30), default="LIVE_AVAILABILITY")
+    delivery_status: Mapped[str] = mapped_column(String(20), default="FAILED")
+    cancellation_reason: Mapped[str] = mapped_column(Text, default="")
+    platform_check_id: Mapped[int | None] = mapped_column(Integer)
+    detected_show_id: Mapped[int | None] = mapped_column(Integer)
     success: Mapped[bool] = mapped_column(Boolean)
     attempts: Mapped[int] = mapped_column(Integer, default=1)
     error: Mapped[str] = mapped_column(Text, default="")
@@ -180,3 +193,34 @@ class RuntimeState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class TelegramConversationState(Base):
+    __tablename__ = "telegram_conversation_state"
+    __table_args__ = (UniqueConstraint("chat_id", "user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chat_id: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[str] = mapped_column(String(32))
+    step: Mapped[str] = mapped_column(String(30), default="")
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    nonce: Mapped[str] = mapped_column(String(24), default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class TelegramWatchCreation(Base):
+    """Persisted idempotency receipt for a Telegram confirmation button."""
+
+    __tablename__ = "telegram_watch_creations"
+    __table_args__ = (UniqueConstraint("chat_id", "user_id", "confirmation_nonce"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    chat_id: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[str] = mapped_column(String(32))
+    confirmation_nonce: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    watch_id: Mapped[int | None] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

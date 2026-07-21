@@ -11,20 +11,19 @@ from app.models import Watch  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create the documented Spider-Man example watch")
+    parser = argparse.ArgumentParser(description="Explicitly create a simulated development watch")
     parser.add_argument(
         "--date", required=True, type=date.fromisoformat, help="Real date in YYYY-MM-DD format"
     )
     parser.add_argument("--city", required=True)
-    parser.add_argument("--topic", default="")
+    parser.add_argument("--movie", required=True)
+    parser.add_argument("--telegram-chat-id", default="")
     args = parser.parse_args()
-    if args.date.day != 31:
-        parser.error("The example date must be a real date falling on the 31st")
     init_db()
     with SessionLocal() as db:
         db.add(
             Watch(
-                movie_name="Spider-Man: Brand New Day",
+                movie_name=args.movie,
                 city=args.city,
                 show_date=args.date,
                 language="English",
@@ -36,11 +35,13 @@ def main() -> None:
                 pvrinox_enabled=True,
                 bookmyshow_mode="AUTOMATIC",
                 pvrinox_mode="AUTOMATIC",
-                ntfy_topic=args.topic,
+                telegram_chat_id_override=args.telegram_chat_id,
+                notifications_enabled=False,
+                simulation_state="UNAVAILABLE",
             )
         )
         db.commit()
-    print("Demo watch created. Automatic discovery is enabled; direct URLs are optional.")
+    print("Development-only simulated watch created with notifications disabled.")
 
 
 if __name__ == "__main__":

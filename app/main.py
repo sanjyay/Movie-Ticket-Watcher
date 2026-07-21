@@ -22,7 +22,13 @@ from app.models import (
     Watch,
 )
 from app.platforms.urls import BOOKMYSHOW_URLS, PVRINOX_URLS, sanitize_url
-from app.services.notifications import NtfyProvider
+from app.services.notifications import (
+    TelegramProvider,
+    effective_chat_id,
+    sanitize_telegram_error,
+    telegram_configured,
+    validate_chat_id,
+)
 from app.services.watcher import (
     aggregate_watch_status,
     enabled_platforms,
@@ -124,9 +130,15 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     watches = db.scalars(select(Watch).order_by(Watch.created_at.desc())).all()
     platform_statuses: dict[int, dict[str, PlatformCheck | None]] = {}
     retry_states: dict[int, dict[str, PlatformRetryState]] = {}
+    telegram_ready: dict[int, bool] = {}
     for watch in watches:
         platform_statuses[watch.id] = {}
         retry_states[watch.id] = {}
+        try:
+            effective_chat_id(watch, settings)
+            telegram_ready[watch.id] = bool(settings.telegram_bot_token)
+        except ValueError:
+            telegram_ready[watch.id] = False
         for platform in enabled_platforms(watch):
             platform_statuses[watch.id][platform] = db.scalar(
                 select(PlatformCheck)
@@ -146,6 +158,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             watches=watches,
             platform_statuses=platform_statuses,
             retry_states=retry_states,
+            telegram_ready=telegram_ready,
             system_status=system_status(db),
         ),
     )
@@ -161,6 +174,8 @@ def _directory_size(path) -> int:  # type: ignore[no-untyped-def]
 def system_status(db: Session) -> dict:
     heartbeat = db.get(RuntimeState, "worker_heartbeat")
     last_cycle = db.get(RuntimeState, "last_successful_cycle")
+    bot_heartbeat = db.get(RuntimeState, "telegram_bot_heartbeat")
+    bot_runtime = db.get(RuntimeState, "telegram_bot_status")
     database_path = settings.database_url.removeprefix("sqlite:///")
     database_file = __import__("pathlib").Path(database_path)
     recent = db.scalars(select(PlatformCheck).order_by(PlatformCheck.id.desc()).limit(50)).all()
@@ -168,16 +183,27 @@ def system_status(db: Session) -> dict:
         name: next((check.status for check in recent if check.platform == name), "Not checked")
         for name in ("BookMyShow", "PVR INOX")
     }
+    last_delivery = db.scalar(
+        select(NotificationHistory)
+        .where(NotificationHistory.provider == "telegram", NotificationHistory.is_test.is_(False))
+        .order_by(NotificationHistory.id.desc())
+    )
     return {
         "version": settings.app_version,
         "worker_heartbeat": datetime.fromisoformat(heartbeat.value) if heartbeat else None,
         "last_cycle": datetime.fromisoformat(last_cycle.value) if last_cycle else None,
+        "telegram_bot_heartbeat": datetime.fromisoformat(bot_heartbeat.value)
+        if bot_heartbeat
+        else None,
+        "telegram_bot_status": bot_runtime.value if bot_runtime else "configuration_incomplete",
         "database_path": database_path,
         "database_size": database_file.stat().st_size if database_file.exists() else 0,
         "screenshot_size": _directory_size(settings.screenshot_dir),
         "timezone": settings.app_timezone,
         "container": settings.container_deployment,
         "adapters": adapters,
+        "telegram_configured": telegram_configured(settings),
+        "last_telegram_delivery": last_delivery,
     }
 
 
@@ -219,9 +245,7 @@ def apply_form(watch: Watch, form, minimum: int) -> None:  # type: ignore[no-unt
     watch.bookmyshow_direct_url = form.get(
         "bookmyshow_direct_url", form.get("bookmyshow_url", "")
     ).strip()
-    watch.pvrinox_direct_url = form.get(
-        "pvrinox_direct_url", form.get("pvrinox_url", "")
-    ).strip()
+    watch.pvrinox_direct_url = form.get("pvrinox_direct_url", form.get("pvrinox_url", "")).strip()
     # Retain the legacy columns for backward-compatible exports and older tooling.
     watch.bookmyshow_url = watch.bookmyshow_direct_url
     watch.pvrinox_url = watch.pvrinox_direct_url
@@ -242,8 +266,16 @@ def apply_form(watch: Watch, form, minimum: int) -> None:  # type: ignore[no-unt
     watch.bookmyshow_discovered_url = ""
     watch.pvrinox_discovered_url = ""
     watch.polling_interval_seconds = max(int(form["polling_interval_seconds"]), minimum)
-    watch.ntfy_topic = form.get("ntfy_topic", "").strip()
-    watch.notification_enabled = "notification_enabled" in form
+    chat_override = form.get("telegram_chat_id_override", "").strip()
+    if chat_override:
+        validate_chat_id(chat_override)
+    watch.telegram_chat_id_override = chat_override
+    watch.notifications_enabled = "notifications_enabled" in form
+    if watch.notifications_enabled:
+        try:
+            effective_chat_id(watch, settings)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     watch.enabled = "enabled" in form
     watch.simulation_state = form.get("simulation_state", "OFF")
 
@@ -379,9 +411,7 @@ async def retry_platform(
     watch = db.get(Watch, watch_id)
     if not watch:
         raise HTTPException(404)
-    await run_watch_check(
-        db, watch, only_platform=platform_name(slug), bypass_cooldown=True
-    )
+    await run_watch_check(db, watch, only_platform=platform_name(slug), bypass_cooldown=True)
     return RedirectResponse(f"/watches/{watch_id}/result", 303)
 
 
@@ -488,7 +518,9 @@ def download_platform_diagnostic(
             watch.bookmyshow_direct_url if name == "BookMyShow" else watch.pvrinox_direct_url
         ),
         "discovered_canonical_url": sanitize_url(
-            watch.bookmyshow_discovered_url if name == "BookMyShow" else watch.pvrinox_discovered_url
+            watch.bookmyshow_discovered_url
+            if name == "BookMyShow"
+            else watch.pvrinox_discovered_url
         ),
         "last_check": None,
         "retry": {
@@ -539,20 +571,38 @@ async def test_notification(
         raise HTTPException(404)
     success, error = True, ""
     try:
-        await NtfyProvider().send_test(watch.ntfy_topic)
+        attempts = await TelegramProvider().send_test(watch)
     except Exception as exc:
-        success, error = False, str(exc)
-    db.add(NotificationHistory(watch_id=watch.id, success=success, error=error))
+        success = False
+        attempts = 1
+        error = sanitize_telegram_error(exc, settings.telegram_bot_token)
+    db.add(
+        NotificationHistory(
+            watch_id=watch.id,
+            provider="telegram",
+            success=success,
+            attempts=attempts,
+            error=error,
+            is_test=True,
+            notification_source="TEST",
+            delivery_status="SENT" if success else "FAILED",
+        )
+    )
     db.commit()
     if not success:
-        raise HTTPException(502, f"ntfy failed: {error}")
+        raise HTTPException(502, f"Telegram delivery failed: {error}")
     return RedirectResponse("/", 303)
 
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict:
     db.execute(text("SELECT 1"))
-    directories = [settings.data_dir, settings.config_dir, settings.screenshot_dir, settings.log_dir]
+    directories = [
+        settings.data_dir,
+        settings.config_dir,
+        settings.screenshot_dir,
+        settings.log_dir,
+    ]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
         probe = directory / ".health-write-test"
@@ -561,7 +611,27 @@ def health(db: Session = Depends(get_db)) -> dict:
             probe.unlink()
         except OSError as exc:
             raise HTTPException(503, f"Runtime directory is not writable: {directory}") from exc
-    return {"status": "ok", "database": "ok", "directories": "writable", "timezone": settings.app_timezone}
+    bot_heartbeat = db.get(RuntimeState, "telegram_bot_heartbeat")
+    bot_runtime = db.get(RuntimeState, "telegram_bot_status")
+    bot_status = bot_runtime.value if bot_runtime else "configuration_incomplete"
+    if bot_status == "long_polling" and bot_heartbeat:
+        stamp = datetime.fromisoformat(bot_heartbeat.value)
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=ZoneInfo("UTC"))
+        if (
+            datetime.now(ZoneInfo("UTC")) - stamp
+        ).total_seconds() > settings.worker_heartbeat_max_age_seconds:
+            bot_status = "stale"
+        else:
+            bot_status = "healthy"
+    return {
+        "status": "ok",
+        "database": "ok",
+        "directories": "writable",
+        "timezone": settings.app_timezone,
+        "telegram_configured": telegram_configured(settings),
+        "telegram_bot": bot_status,
+    }
 
 
 @app.get("/diagnostics/{filename}")

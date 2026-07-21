@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
-import argparse
 import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sqlalchemy import select
 
-from app.services.notifications import NtfyProvider  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from app.database import SessionLocal, init_db  # noqa: E402
+from app.models import Watch  # noqa: E402
+from app.services.notifications import TelegramProvider  # noqa: E402
 
 
-async def run(topic: str) -> None:
-    await NtfyProvider().send_test(topic)
-    print(f"Test notification sent to {topic}")
+async def main() -> int:
+    init_db()
+    with SessionLocal() as db:
+        watch = db.scalar(select(Watch).order_by(Watch.id))
+        if not watch:
+            print("No watch exists; create one before testing Telegram.", file=sys.stderr)
+            return 2
+        await TelegramProvider().send_test(watch)
+    print("Telegram test delivery succeeded")
+    return 0
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("topic")
-    asyncio.run(run(parser.parse_args().topic))
+    raise SystemExit(asyncio.run(main()))

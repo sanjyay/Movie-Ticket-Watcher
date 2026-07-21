@@ -33,6 +33,43 @@ PVR_PARSER_VERSION = "pvr-public-json-v1"
 class PvrInoxAdapter(TicketPlatformAdapter):
     name = "PVR INOX"
 
+    async def interactive_search(
+        self, query: str, city: str = "Chennai", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Search the same public source used by automatic discovery."""
+        data = await self._api_post(
+            "search", {"city": city, "lat": "0.000", "lng": "0.000", "type": "HOME"}, city
+        )
+        output = data.get("output")
+        if data.get("result") != "success" or not isinstance(output, dict):
+            raise ValueError("PVR INOX search response is unsupported")
+        pools = [
+            item
+            for key in ("ns", "cs")
+            for item in (output.get(key) if isinstance(output.get(key), list) else [])
+            if isinstance(item, dict)
+        ]
+        wanted = normalized_words(query)
+        matches = [
+            item
+            for item in pools
+            if all(
+                word in normalized_words(str(item.get("n") or item.get("filmCommonName") or ""))
+                for word in wanted
+            )
+        ]
+        return [
+            {
+                "id": str(item.get("id") or ""),
+                "title": str(item.get("n") or item.get("filmCommonName") or "Unknown movie"),
+                "languages": str(item.get("otherlanguages") or ""),
+                "formats": ", ".join(str(value) for value in (item.get("fmts") or []) if value),
+                "platform": self.name,
+            }
+            for item in matches[:limit]
+            if item.get("id")
+        ]
+
     def _mode_and_direct_url(self, watch: Watch) -> tuple[str, str]:
         forced = getattr(self, "forced_direct_url", None)
         if forced is not None:
@@ -84,7 +121,9 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             r"/comingsoon/(?:[^/?#]+/)?(\d+)(?:[/?#]|$)",
             r"/m\.movie-details/(\d+)(?:[/?#]|$)",
         )
-        return next((match.group(1) for pattern in patterns if (match := re.search(pattern, url))), "")
+        return next(
+            (match.group(1) for pattern in patterns if (match := re.search(pattern, url))), ""
+        )
 
     @staticmethod
     def _slug(value: str) -> str:
@@ -129,7 +168,12 @@ class PvrInoxAdapter(TicketPlatformAdapter):
         data = await self._api_post("search", payload, watch.city)
         output = data.get("output")
         if data.get("result") != "success" or not isinstance(output, dict):
-            return "", "", [f"official search returned {data.get('result')}: {data.get('msg', '')}"], ""
+            return (
+                "",
+                "",
+                [f"official search returned {data.get('result')}: {data.get('msg', '')}"],
+                "",
+            )
         pools = []
         for key in ("ns", "cs"):
             values = output.get(key)
@@ -138,7 +182,9 @@ class PvrInoxAdapter(TicketPlatformAdapter):
         title_matches = [
             item
             for item in pools
-            if titles_match(watch.movie_name, str(item.get("n") or item.get("filmCommonName") or ""))
+            if titles_match(
+                watch.movie_name, str(item.get("n") or item.get("filmCommonName") or "")
+            )
         ]
         candidates = [
             item for item in title_matches if self._candidate_language_format(item, watch)
@@ -151,7 +197,10 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             return "", "", [details], "public JSON: content/search"
         candidate = sorted(
             candidates,
-            key=lambda item: (str(item.get("movieType")) != "NOWSHOWING", -int(item.get("showCount") or 0)),
+            key=lambda item: (
+                str(item.get("movieType")) != "NOWSHOWING",
+                -int(item.get("showCount") or 0),
+            ),
         )[0]
         movie_id = str(candidate.get("id") or "")
         movie_name = str(candidate.get("n") or watch.movie_name)
@@ -159,7 +208,12 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             f"https://www.pvrcinemas.com/moviesessions/{self._slug(watch.city)}/"
             f"{self._slug(movie_name)}/{movie_id}"
         )
-        return movie_id, canonical, [f"official search selected exact movie ID {movie_id}"], "public JSON: content/search"
+        return (
+            movie_id,
+            canonical,
+            [f"official search selected exact movie ID {movie_id}"],
+            "public JSON: content/search",
+        )
 
     @staticmethod
     def _coerce_snapshot(value) -> PageSnapshot:  # type: ignore[no-untyped-def]
@@ -205,7 +259,9 @@ class PvrInoxAdapter(TicketPlatformAdapter):
 
         if mode == PlatformMode.DIRECT:
             if not direct:
-                raise ConfigurationRequiredError("PVR INOX direct URL is required in Direct URL mode")
+                raise ConfigurationRequiredError(
+                    "PVR INOX direct URL is required in Direct URL mode"
+                )
             if direct.startswith("fixture://"):
                 self._checked_url = direct
                 self._diagnostic_context = {
@@ -348,7 +404,10 @@ class PvrInoxAdapter(TicketPlatformAdapter):
             watch.movie_name, str(movie.get("n") or movie.get("filmCommonName") or "")
         ):
             return RawAdapterData(
-                diagnostics=[*notes, "movie-session response did not identify the configured movie"],
+                diagnostics=[
+                    *notes,
+                    "movie-session response did not identify the configured movie",
+                ],
                 empty_status=PlatformState.DISCOVERY_NO_RESULTS,
                 phase="discovery",
                 configured_mode=mode,
@@ -368,7 +427,9 @@ class PvrInoxAdapter(TicketPlatformAdapter):
         for cinema_entry in cinemas:
             if not isinstance(cinema_entry, dict):
                 continue
-            cinema = cinema_entry.get("cinema") if isinstance(cinema_entry.get("cinema"), dict) else {}
+            cinema = (
+                cinema_entry.get("cinema") if isinstance(cinema_entry.get("cinema"), dict) else {}
+            )
             theatre = str(cinema.get("name") or "")
             city = str(cinema.get("cityName") or watch.city)
             experiences = cinema_entry.get("experienceSessions")

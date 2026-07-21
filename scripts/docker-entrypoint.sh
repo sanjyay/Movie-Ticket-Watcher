@@ -15,6 +15,7 @@ python -c 'from app.database import init_db; init_db()'
 case "${1:-web}" in
   web) exec uvicorn app.main:app --host "${APP_BIND:-0.0.0.0}" --port "${APP_PORT:-8787}" --proxy-headers ;;
   worker) exec python /app/worker.py ;;
+  telegram-bot) exec python -m app.telegram_bot ;;
   migrate) exit 0 ;;
   test) exec pytest -p no:cacheprovider "${@:2}" ;;
   doctor) exec python /app/scripts/doctor.py "${@:2}" ;;
